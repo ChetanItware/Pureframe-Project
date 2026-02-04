@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="mr">
+<head>
+    <meta charset="UTF-8">
+    <title>Ferfar Extractor</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-6">
+
+<div class="max-w-md w-full bg-white shadow-xl rounded-2xl p-8">
+    <h1 class="text-2xl font-bold text-slate-800 mb-6 text-center">
+        Ferfar (Mutation) Generator
+    </h1>
+
+    <div class="space-y-4">
+
+        <div class="grid grid-cols-2 gap-2">
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase">District</label>
+                <select id="dist" class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="">जिल्हा निवडा</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-500 uppercase">Taluka</label>
+                <select id="tal"  class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                    <option value="">तालुका निवडा</option>
+                </select>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-xs font-bold text-slate-500 uppercase">Village</label>
+            <select id="vil" class="w-full border rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">गाव निवडा</option>
+            </select>
+        </div>
+
+        <div>
+            <label class="block text-xs font-bold text-slate-500 uppercase">
+                Mutation (Ferfar) No
+            </label>
+            <input id="mut_no"
+                   class="w-full border rounded-lg px-3 py-2 text-sm" />
+        </div>
+
+        <button id="payBtn"
+            onclick="handlePayment()"
+            class="w-full bg-orange-500 text-white py-3 rounded-lg">
+            Pay ₹20 to Unlock
+        </button>
+
+        <button id="genBtn"
+            onclick="runWorker()"
+            class="hidden w-full bg-blue-600 text-white py-3 rounded-lg">
+            Generate & Download Ferfar
+        </button>
+    </div>
+
+    <div id="status" class="hidden mt-6 text-center">
+        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+        <p id="msg" class="text-blue-600 mt-2">Processing…</p>
+    </div>
+</div>
+
+<script>
+/* ===== DOM REFERENCES ===== */
+const dist = document.getElementById('dist');
+const tal  = document.getElementById('tal');
+const vil  = document.getElementById('vil');
+const mut_no = document.getElementById('mut_no');
+const payBtn = document.getElementById('payBtn');
+const genBtn = document.getElementById('genBtn');
+const status = document.getElementById('status');
+const msg = document.getElementById('msg');
+
+let locationData = {};
+let paymentDetails = {};
+
+/* ===== LOAD LOCATIONS ===== */
+async function initLocations() {
+    const res = await fetch('locations.json');
+    locationData = await res.json();
+
+    Object.keys(locationData).forEach(d => {
+        if (d !== "जिल्हा निवडा") {
+            dist.add(new Option(d, d));
+        }
+    });
+}
+
+/* ===== DISTRICT CHANGE ===== */
+dist.addEventListener('change', () => {
+    tal.innerHTML = '<option value="">तालुका निवडा</option>';
+    vil.innerHTML = '<option value="">गाव निवडा</option>';
+    tal.disabled = true;
+    vil.disabled = true;
+
+    if (!dist.value) return;
+
+    Object.keys(locationData[dist.value]).forEach(t => {
+        tal.add(new Option(t, t));
+    });
+
+    tal.disabled = false;
+});
+
+/* ===== TALUKA CHANGE ===== */
+tal.addEventListener('change', () => {
+    vil.innerHTML = '<option value="">गाव निवडा</option>';
+    vil.disabled = true;
+
+    if (!tal.value) return;
+
+    locationData[dist.value][tal.value].forEach(v => {
+        if (v !== "गाव निवडा") vil.add(new Option(v, v));
+    });
+
+    vil.disabled = false;
+});
+
+/* ===== PAYMENT ===== */
+async function handlePayment() {
+    if (!mut_no.value) return alert("Enter Mutation Number");
+
+    const res = await fetch('/api/pay/create-order', { method: 'POST' });
+    const data = await res.json();
+
+    new Razorpay({
+        key: "rzp_test_S9L06wUQS6uuhH",
+        amount: data.amount,
+        order_id: data.id,
+        handler: r => {
+            paymentDetails = r;
+            payBtn.classList.add('hidden');
+            genBtn.classList.remove('hidden');
+        }
+    }).open();
+}
+
+/* ===== RUN WORKER (SAFE) ===== */
+async function runWorker() {
+    status.classList.remove('hidden');
+    genBtn.disabled = true;
+    msg.innerText = "Automation started…";
+
+    try {
+        const res = await fetch('/api/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                district: dist.value,
+                taluka: tal.value,
+                village: vil.value,
+                mutation_no: mut_no.value,
+                ...paymentDetails
+            })
+        });
+
+        const data = await res.json();
+
+        if (!data || typeof data.id !== "number") {
+            throw new Error("Invalid ID from server");
+        }
+
+        pollStatus(data.id);
+
+    } catch (err) {
+        msg.innerText = "❌ Failed to start process.";
+        genBtn.disabled = false;
+        console.error(err);
+    }
+}
+
+/* ===== POLLING (SAFE) ===== */
+function pollStatus(id) {
+    if (!Number.isInteger(id)) return;
+
+    const timer = setInterval(async () => {
+        try {
+            const res = await fetch(`/api/status/${id}`);
+            const data = await res.json();
+
+            if (data.status === 'completed') {
+                clearInterval(timer);
+                msg.innerText = "✅ Ferfar Ready!";
+                const a = document.createElement('a');
+                a.href = `/files/${data.pdf_url}`;
+                a.download = data.pdf_url;
+                a.click();
+            }
+
+            if (data.status === 'failed') {
+                clearInterval(timer);
+                msg.innerText = "❌ Extraction failed.";
+                genBtn.disabled = false;
+            }
+        } catch (e) {
+            console.error("Polling error:", e);
+        }
+    }, 3000);
+}
+
+initLocations();
+</script>
+
+</body>
+</html>
