@@ -1,11 +1,12 @@
 import postgres from 'postgres';
+import 'dotenv/config';
 
 const sql = postgres({
-  host: '127.0.0.1',
-  port: 5432, 
-  database: 'postgres',
-  username: 'postgres',
-  password: 'chetan',
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
+  database: process.env.DB_NAME,
+  username: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
   onnotice: () => {},
   connect_timeout: 30
 });

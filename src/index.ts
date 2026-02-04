@@ -5,25 +5,28 @@ import amqp from 'amqplib';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import { existsSync, mkdirSync } from 'fs';
+import 'dotenv/config';
+
 
 const app = new Hono();
-const RZP_ID = 'rzp_test_S9L06wUQS6uuhH';
-const RZP_SECRET = 'WDfk3r0ydKkwcN3S8ZUXIekM';
+const RZP_ID = process.env.RZP_ID!;
+const RZP_SECRET = process.env.RZP_SECRET!;
 
 // Ensure this connection string matches your local DB
 const sql = postgres({
-  host: '127.0.0.1',
-  port: 5432,
-  database: 'postgres',
-  username: 'postgres',
-  password: 'chetan'
+  host: process.env.DB_HOST,
+  port: Number(process.env.DB_PORT),
+  database: process.env.DB_NAME,
+  username: process.env.DB_USER,
+  password: process.env.DB_PASSWORD
 });
+
 const rzp = new Razorpay({ key_id: RZP_ID, key_secret: RZP_SECRET });
 
 let channel: amqp.Channel;
 async function initRabbitMQ() {
     try {
-        const connection = await amqp.connect('amqp://localhost');
+        const connection = await amqp.connect(process.env.RABBITMQ_URL!);
         channel = await connection.createChannel();
         await channel.assertQueue('task_queue', { durable: true });
         console.log("✅ RabbitMQ Connected and Queue 'task_queue' Ready");

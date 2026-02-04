@@ -1,20 +1,29 @@
 import sys, asyncio, os, io, pika, json, psycopg2
 from playwright.async_api import async_playwright
+from dotenv import load_dotenv
+
+# =========================
+# LOAD ENV
+# =========================
+load_dotenv()
 
 # Encoding Fix for Windows/CMD
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-# Database Update Function
+# =========================
+# DATABASE UPDATE FUNCTION
+# =========================
 def update_db(req_id, status, filename=None):
     try:
         conn = psycopg2.connect(
-            dbname="postgres",
-            user="postgres",
-            password="chetan",
-            host="localhost",
-            port="5432"
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT")
         )
         cur = conn.cursor()
+
         if filename:
             cur.execute(
                 "UPDATE extraction_requests SET status=%s, pdf_url=%s WHERE id=%s",
@@ -25,13 +34,18 @@ def update_db(req_id, status, filename=None):
                 "UPDATE extraction_requests SET status=%s WHERE id=%s",
                 (status, req_id)
             )
+
         conn.commit()
         cur.close()
         conn.close()
         print(f"✅ DB Updated: ID {req_id} is {status}")
+
     except Exception as e:
         print(f"❌ DB Error: {e}")
 
+# =========================
+# MAIN AUTOMATION
+# =========================
 async def run_automation(data):
     req_id = data['id']
     dist, tal, vil, mut_no = (
@@ -43,20 +57,16 @@ async def run_automation(data):
 
     async with async_playwright() as p:
         try:
-            browser = await p.chromium.connect_over_cdp("http://localhost:9222")
+            browser = await p.chromium.connect_over_cdp(os.getenv("CDP_URL"))
             context = browser.contexts[0]
             page = await context.new_page()
 
-            # ✅ ADDING YOUR SCRIPT (AS-IS)
+            # ✅ YOUR WORKING SCRIPT — UNCHANGED
             await page.add_init_script("""
-                // Kill native dialogs
                 window.alert = () => true;
                 window.confirm = () => true;
                 window.prompt = () => null;
 
-                
-
-                // Auto-click swal OK if it still renders
                 const obs = new MutationObserver(() => {
                     const btn = document.querySelector('.swal2-confirm');
                     if (btn) btn.click();
@@ -65,7 +75,7 @@ async def run_automation(data):
             """)
 
             await page.goto(
-                "https://digitalsatbara.mahabhumi.gov.in/DSLR/Satbara/eFerfar",
+                os.getenv("FERFAR_URL"),
                 wait_until="domcontentloaded"
             )
 
@@ -153,13 +163,14 @@ async def run_automation(data):
 
             if res == "OK":
                 async with page.expect_download() as download_info:
-                    pass  # swal OK auto-clicked by observer
+                    pass  # swal auto-clicked by observer
 
                 download = await download_info.value
                 file_name = f"Ferfar_{mut_no}_{req_id}.pdf"
                 await download.save_as(f"./downloads/{file_name}")
 
                 update_db(req_id, "completed", file_name)
+
             else:
                 print(f"⚠️ Automation Failed: {res}")
                 update_db(req_id, "failed")
@@ -167,9 +178,13 @@ async def run_automation(data):
         except Exception as e:
             print(f"❌ Error: {e}")
             update_db(req_id, "failed")
+
         finally:
             await page.close()
 
+# =========================
+# RABBITMQ CALLBACK
+# =========================
 def callback(ch, method, properties, body):
     try:
         data = json.loads(body)
@@ -179,20 +194,23 @@ def callback(ch, method, properties, body):
     except Exception as e:
         print(f"❌ Callback Error: {e}")
 
+# =========================
+# WORKER START
+# =========================
 if __name__ == "__main__":
-    if not os.path.exists("downloads"):
-        os.makedirs("downloads")
+    os.makedirs("downloads", exist_ok=True)
 
     try:
         connection = pika.BlockingConnection(
             pika.ConnectionParameters(host="localhost")
         )
         channel = connection.channel()
-        channel.queue_declare(queue="task_queue", durable=True)
+        channel.queue_declare(queue='task_queue', durable=True)
         channel.basic_qos(prefetch_count=1)
-        channel.basic_consume(queue="task_queue", on_message_callback=callback)
+        channel.basic_consume(queue='task_queue', on_message_callback=callback)
 
         print("🚀 Ferfar Worker is running and waiting for tasks...")
         channel.start_consuming()
+
     except Exception as e:
         print(f"❌ RabbitMQ/Worker start failed: {e}")

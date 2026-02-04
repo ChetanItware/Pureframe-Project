@@ -1,6 +1,11 @@
 import asyncio
 from playwright.async_api import async_playwright
 import shutil
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
 
 async def keep_active(context):
     """Keep Ferfar tabs active by triggering site reset"""
@@ -81,8 +86,9 @@ CHECKPOINT
             except:
                 print(f"❌ Ferfar Tab {i+1} failed")
 
-        # Open 9 additional Ferfar tabs (total = 10)
-        await asyncio.gather(*[open_tab(i) for i in range(1, 10)])
+        # Open 9 additional Ferfar tabs (total = TAB_COUNT)
+        TAB_COUNT = int(os.getenv("FERFAR_TABS", "5"))
+        await asyncio.gather(*[open_tab(i) for i in range(1, TAB_COUNT)])
 
         print("\n🔥 10 Ferfar tabs opened successfully.")
         await keep_active(context)
