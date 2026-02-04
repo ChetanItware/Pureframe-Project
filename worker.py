@@ -38,7 +38,7 @@ async def run_automation(data):
         data['district'],
         data['taluka'],
         data['village'],
-        str(data['mutation_no'])   # ensure string
+        str(data['mutation_no'])
     )
 
     async with async_playwright() as p:
@@ -46,6 +46,23 @@ async def run_automation(data):
             browser = await p.chromium.connect_over_cdp("http://localhost:9222")
             context = browser.contexts[0]
             page = await context.new_page()
+
+            # ✅ ADDING YOUR SCRIPT (AS-IS)
+            await page.add_init_script("""
+                // Kill native dialogs
+                window.alert = () => true;
+                window.confirm = () => true;
+                window.prompt = () => null;
+
+                
+
+                // Auto-click swal OK if it still renders
+                const obs = new MutationObserver(() => {
+                    const btn = document.querySelector('.swal2-confirm');
+                    if (btn) btn.click();
+                });
+                obs.observe(document.body, { childList: true, subtree: true });
+            """)
 
             await page.goto(
                 "https://digitalsatbara.mahabhumi.gov.in/DSLR/Satbara/eFerfar",
@@ -73,19 +90,15 @@ async def run_automation(data):
                     return false;
                 };
 
-                /* DISTRICT */
                 if (!await select('#ddlDist1', args.dist)) return "DIST_ERR";
                 await wait(3000);
 
-                /* TALUKA */
                 if (!await select('#ddlTahsil', args.tal)) return "TAL_ERR";
                 await wait(4000);
 
-                /* VILLAGE */
                 if (!await select('#ddlVillage', args.vil)) return "VIL_ERR";
                 await wait(2000);
 
-                /* Village popup OK */
                 for (let i = 0; i < 20; i++) {
                     const okBtn = document.querySelector('.swal2-confirm');
                     if (okBtn) {
@@ -97,7 +110,6 @@ async def run_automation(data):
 
                 await wait(3000);
 
-                /* MUTATION NUMBER — REAL TYPING (CRITICAL FIX) */
                 const mutInput = document.querySelector('#txt_mutationno');
                 if (!mutInput) return "MUT_INPUT_NOT_FOUND";
 
@@ -110,17 +122,13 @@ async def run_automation(data):
                     mutInput.dispatchEvent(new KeyboardEvent('keydown', { key: ch, bubbles: true }));
                     mutInput.dispatchEvent(new KeyboardEvent('keyup', { key: ch, bubbles: true }));
                     mutInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    await wait(300);   // REQUIRED for backend validation
+                    await wait(300);
                 }
 
-                // blur to trigger server validation
                 mutInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
                 mutInput.blur();
-
-                // wait for backend validation to complete
                 await wait(4000);
 
-                /* DOWNLOAD BUTTON */
                 let downloadBtn = null;
                 for (let i = 0; i < 20; i++) {
                     downloadBtn = document.querySelector('#submit');
@@ -144,12 +152,8 @@ async def run_automation(data):
             )
 
             if res == "OK":
-                # FIRST swal popup (OK / Cancel) → ALWAYS CLICK OK
-                ok_btn = page.locator(".swal2-confirm")
-                await ok_btn.wait_for(state="visible", timeout=15000)
-
                 async with page.expect_download() as download_info:
-                    await ok_btn.click()
+                    pass  # swal OK auto-clicked by observer
 
                 download = await download_info.value
                 file_name = f"Ferfar_{mut_no}_{req_id}.pdf"
