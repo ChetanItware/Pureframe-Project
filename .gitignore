@@ -3,3 +3,5 @@ node_modules
 user_data
 .env
 .venv
+downloads
+__pycache__
